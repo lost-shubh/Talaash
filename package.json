@@ -3,30 +3,34 @@
   "version": "1.0.0",
   "description": "Talaash — India's open-source missing persons registry",
   "private": true,
+
+  "engines": {
+    "node": ">=18 <=20"
+  },
+
   "scripts": {
     "dev": "next dev",
-    "build": "node scripts/init-db.js && next build",
+    "build": "next build",
     "start": "next start",
     "lint": "next lint",
     "db:init": "node scripts/init-db.js",
     "db:seed": "node scripts/seed.js"
   },
-  "engines": {
-    "node": "20.x"
-  },
+
   "dependencies": {
     "bcryptjs": "^2.4.3",
-    "better-sqlite3": "^9.6.0",
+    "better-sqlite3": "9.4.0",
     "jose": "^5.6.3",
     "jsonwebtoken": "^9.0.2",
     "leaflet": "^1.9.4",
-    "next": "^14.2.35",
-    "react": "^18.3.1",
-    "react-dom": "^18.3.1",
+    "next": "14.2.35",
+    "react": "18.3.1",
+    "react-dom": "18.3.1",
     "react-leaflet": "^4.2.1",
-    "sharp": "^0.33.4",
+    "sharp": "^0.33.5",
     "uuid": "^10.0.0"
   },
+
   "devDependencies": {
     "@types/bcryptjs": "^2.4.6",
     "@types/better-sqlite3": "^7.6.11",

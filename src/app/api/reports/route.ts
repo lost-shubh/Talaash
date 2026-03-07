@@ -20,6 +20,28 @@ function estimateBase64Bytes(dataUrl: string): number {
   return Math.floor((b64.length * 3) / 4);
 }
 
+function ensureReporterRow(db: ReturnType<typeof getDb>, user: { id: string; name: string; email: string; role: 'admin' | 'user' }): string {
+  const byId = db.prepare('SELECT id FROM users WHERE id = ?').get(user.id) as { id: string } | undefined;
+  if (byId) return byId.id;
+
+  const byEmail = db.prepare('SELECT id FROM users WHERE email = ?').get(user.email) as { id: string } | undefined;
+  if (byEmail) return byEmail.id;
+
+  db.prepare(`
+    INSERT INTO users (id, name, email, password_hash, phone, role, is_active)
+    VALUES (?, ?, ?, ?, ?, ?, 1)
+  `).run(
+    user.id,
+    sanitize(user.name),
+    sanitize(user.email).toLowerCase(),
+    '__serverless_session_placeholder__',
+    '',
+    user.role
+  );
+
+  return user.id;
+}
+
 export async function GET(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url);
@@ -168,6 +190,7 @@ export async function POST(req: NextRequest) {
     }
 
     const db = getDb();
+    const reporterId = ensureReporterRow(db, user);
     const id = generateId();
     const caseNumber = generateCaseNumber();
     const now = new Date().toISOString();
@@ -194,7 +217,7 @@ export async function POST(req: NextRequest) {
       sanitize(String((body as Record<string, unknown>).identifying_marks || '')),
       sanitize(String((body as Record<string, unknown>).age_progression || '')),
       reportType,
-      user.id,
+      reporterId,
       sanitize(String((body as Record<string, unknown>).contact_name || '')),
       sanitize(String((body as Record<string, unknown>).contact_phone || '')),
       sanitize(String((body as Record<string, unknown>).contact_relation || '')),
@@ -218,7 +241,7 @@ export async function POST(req: NextRequest) {
     }
 
     db.prepare('INSERT INTO audit_log (id, report_id, action, user_id, notes) VALUES (?,?,?,?,?)')
-      .run(generateId(), id, 'CREATED', user.id, 'Report filed by user');
+      .run(generateId(), id, 'CREATED', reporterId, 'Report filed by user');
 
     return NextResponse.json({ success: true, id, caseNumber }, { status: 201 });
   } catch (err) {

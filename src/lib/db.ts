@@ -1,23 +1,28 @@
-import Database from 'better-sqlite3';
-import path from 'path';
-import fs from 'fs';
+import Database from 'better-sqlite3'
+import path from 'path'
+import fs from 'fs'
 
-const DB_PATH = process.env.DB_PATH || './talaash.db';
+const DB_PATH =
+  process.env.NODE_ENV === 'production'
+    ? '/tmp/talaash.db'
+    : path.join(process.cwd(), 'talaash.db')
 
-let _db: Database.Database | null = null;
+let _db: Database.Database | null = null
 
 export function getDb(): Database.Database {
-  if (_db) return _db;
+  if (_db) return _db
 
-  // Ensure directory exists
-  const dir = path.dirname(path.resolve(DB_PATH));
-  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+  const dir = path.dirname(DB_PATH)
+  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true })
 
-  _db = new Database(path.resolve(DB_PATH));
-  _db.pragma('journal_mode = WAL');
-  _db.pragma('foreign_keys = ON');
-  initSchema(_db);
-  return _db;
+  _db = new Database(DB_PATH)
+
+  _db.pragma('journal_mode = WAL')
+  _db.pragma('foreign_keys = ON')
+
+  initSchema(_db)
+
+  return _db
 }
 
 function initSchema(db: Database.Database) {
@@ -95,7 +100,7 @@ function initSchema(db: Database.Database) {
     CREATE INDEX IF NOT EXISTS idx_photos_report ON photos(report_id);
     CREATE INDEX IF NOT EXISTS idx_sightings_report ON sightings(report_id);
     CREATE INDEX IF NOT EXISTS idx_audit_report ON audit_log(report_id);
-  `);
+  `)
 }
 
-export default getDb;
+export default getDb

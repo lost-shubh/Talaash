@@ -5,7 +5,6 @@ const nextConfig = {
     unoptimized: true,
   },
   // Required for better-sqlite3 on Vercel
-  serverExternalPackages: ['better-sqlite3'],
   webpack: (config, { isServer }) => {
     if (isServer) {
       config.externals = [...(config.externals || []), 'better-sqlite3'];

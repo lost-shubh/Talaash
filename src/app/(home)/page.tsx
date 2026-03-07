@@ -75,7 +75,7 @@ export default function HomePage() {
         <div>
           <h1 className="hero-title">
             FIND THE<br />MISSING
-            <span className="accent">India's open-source missing person registry</span>
+            <span className="accent">India&apos;s open-source missing person registry</span>
           </h1>
         </div>
         <div>

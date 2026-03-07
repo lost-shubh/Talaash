@@ -2,9 +2,23 @@ import { SignJWT, jwtVerify } from 'jose';
 import bcrypt from 'bcryptjs';
 import { cookies } from 'next/headers';
 
-const SECRET = new TextEncoder().encode(
-  process.env.JWT_SECRET || 'talaash_fallback_secret_change_in_production'
-);
+const FALLBACK_SECRET = 'talaash_fallback_secret_change_in_production';
+let warnedFallback = false;
+
+function getSecret(): Uint8Array {
+  const secretValue = (process.env.JWT_SECRET || '').trim() || FALLBACK_SECRET;
+
+  if (process.env.NODE_ENV === 'production' && secretValue === FALLBACK_SECRET) {
+    throw new Error('JWT_SECRET must be set in production.');
+  }
+
+  if (process.env.NODE_ENV !== 'production' && secretValue === FALLBACK_SECRET && !warnedFallback) {
+    warnedFallback = true;
+    console.warn('Using fallback JWT secret for local development. Set JWT_SECRET in .env.local.');
+  }
+
+  return new TextEncoder().encode(secretValue);
+}
 
 export interface JWTPayload {
   id: string;
@@ -18,12 +32,12 @@ export async function signToken(payload: JWTPayload): Promise<string> {
     .setProtectedHeader({ alg: 'HS256' })
     .setIssuedAt()
     .setExpirationTime('7d')
-    .sign(SECRET);
+    .sign(getSecret());
 }
 
 export async function verifyToken(token: string): Promise<JWTPayload | null> {
   try {
-    const { payload } = await jwtVerify(token, SECRET);
+    const { payload } = await jwtVerify(token, getSecret());
     return payload as unknown as JWTPayload;
   } catch {
     return null;

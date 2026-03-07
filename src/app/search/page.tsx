@@ -1,5 +1,5 @@
 'use client';
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect } from 'react';
 import { ReportCard } from '@/components/ui/ReportCard';
 import { ReportModal } from '@/components/ui/ReportModal';
 import { INDIAN_STATES } from '@/types';

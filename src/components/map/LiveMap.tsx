@@ -191,7 +191,7 @@ export default function LiveMap({ sightings, livePos, height = '400px', label }:
 
       mapRef.current.panTo([livePos.lat, livePos.lng], { animate: true, duration: 0.5 });
     });
-  }, [livePos?.lat, livePos?.lng]);
+  }, [livePos?.lat, livePos?.lng, livePos?.accuracy]);
 
   const withCoords = sightings.filter(s => s.lat != null && s.lng != null);
 

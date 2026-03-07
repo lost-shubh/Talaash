@@ -276,7 +276,7 @@ export default function ReportPage() {
 
           <div className="photo-grid">
             {photos.map(p => (
-              <img key={p.id} src={p.data} width={120} />
+              <img key={p.id} src={p.data} width={120} alt="Uploaded preview" />
             ))}
           </div>
         </>

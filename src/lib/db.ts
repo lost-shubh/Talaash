@@ -2,10 +2,14 @@ import Database from 'better-sqlite3'
 import path from 'path'
 import fs from 'fs'
 
-const DB_PATH =
-  process.env.NODE_ENV === 'production'
+const DEFAULT_DB_PATH =
+  process.env.NODE_ENV === 'production' && process.platform !== 'win32'
     ? '/tmp/talaash.db'
     : path.join(process.cwd(), 'talaash.db')
+
+const DB_PATH = process.env.DB_PATH
+  ? path.resolve(process.env.DB_PATH)
+  : DEFAULT_DB_PATH
 
 let _db: Database.Database | null = null
 

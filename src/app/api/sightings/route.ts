@@ -16,39 +16,52 @@ export async function GET(req: NextRequest) {
       ORDER BY s.timestamp DESC
     `).all();
     return NextResponse.json(sightings);
-  } catch (err) {
+  } catch {
     return NextResponse.json({ error: 'Server error' }, { status: 500 });
   }
 }
 
 export async function POST(req: NextRequest) {
   try {
-    const body = await req.json();
-    const { report_id, reporter_name, description, lat, lng, accuracy } = body;
+    const body = await req.json().catch(() => null);
+    if (!body || typeof body !== 'object') {
+      return NextResponse.json({ error: 'Invalid request body' }, { status: 400 });
+    }
 
-    if (!report_id || !description) {
+    const reportId = sanitize(String((body as Record<string, unknown>).report_id || ''));
+    const reporterName = sanitize(String((body as Record<string, unknown>).reporter_name || ''));
+    const description = sanitize(String((body as Record<string, unknown>).description || ''));
+
+    if (!reportId || !description) {
       return NextResponse.json({ error: 'report_id and description required' }, { status: 400 });
     }
-    if (description.trim().length < 10) {
+    if (description.length < 10) {
       return NextResponse.json({ error: 'Description must be at least 10 characters' }, { status: 400 });
     }
 
+    const rawLat = (body as Record<string, unknown>).lat;
+    const rawLng = (body as Record<string, unknown>).lng;
+    const rawAccuracy = (body as Record<string, unknown>).accuracy;
+
     const db = getDb();
-    // Verify report exists and is public
-    const report = db.prepare("SELECT id, status FROM reports WHERE id = ? AND status = 'missing'").get(report_id) as any;
+    const report = db.prepare("SELECT id, status FROM reports WHERE id = ? AND status = 'missing'").get(reportId) as { id: string; status: string } | undefined;
     if (!report) return NextResponse.json({ error: 'Report not found or not active' }, { status: 404 });
 
-    // Validate coordinates if provided
     let safeLat: number | null = null;
     let safeLng: number | null = null;
     let safeAcc: number | null = null;
-    if (lat != null && lng != null) {
-      const pLat = parseFloat(lat);
-      const pLng = parseFloat(lng);
-      if (!isNaN(pLat) && !isNaN(pLng) && pLat >= -90 && pLat <= 90 && pLng >= -180 && pLng <= 180) {
+
+    if (rawLat != null && rawLng != null) {
+      const pLat = Number.parseFloat(String(rawLat));
+      const pLng = Number.parseFloat(String(rawLng));
+      if (!Number.isNaN(pLat) && !Number.isNaN(pLng) && pLat >= -90 && pLat <= 90 && pLng >= -180 && pLng <= 180) {
         safeLat = pLat;
         safeLng = pLng;
-        safeAcc = accuracy ? Math.min(parseFloat(accuracy), 50000) : null;
+
+        const parsedAcc = Number.parseFloat(String(rawAccuracy ?? ''));
+        if (!Number.isNaN(parsedAcc) && parsedAcc >= 0) {
+          safeAcc = Math.min(parsedAcc, 50000);
+        }
       }
     }
 
@@ -56,7 +69,7 @@ export async function POST(req: NextRequest) {
     db.prepare(`
       INSERT INTO sightings (id, report_id, reporter_name, description, lat, lng, accuracy)
       VALUES (?,?,?,?,?,?,?)
-    `).run(id, report_id, sanitize(reporter_name || ''), sanitize(description), safeLat, safeLng, safeAcc);
+    `).run(id, reportId, reporterName, description, safeLat, safeLng, safeAcc);
 
     const sighting = db.prepare('SELECT * FROM sightings WHERE id = ?').get(id);
     return NextResponse.json({ success: true, sighting }, { status: 201 });

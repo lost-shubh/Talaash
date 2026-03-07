@@ -45,7 +45,7 @@ export default function MyReportsPage() {
           <div className="empty">
             <div className="empty-icon">📋</div>
             <div className="empty-title">No Reports Yet</div>
-            <div className="empty-sub">You haven't filed any missing person reports.</div>
+            <div className="empty-sub">You haven&apos;t filed any missing person reports.</div>
             <button className="btn btn-solid btn-lg" onClick={() => router.push('/report')}>+ File a Report</button>
           </div>
         ) : (

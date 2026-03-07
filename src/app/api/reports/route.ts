@@ -1,17 +1,35 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getDb } from '@/lib/db';
 import { getSessionUser, sanitize, generateId, generateCaseNumber } from '@/lib/auth';
+import { INDIAN_STATES } from '@/types';
+
+const VALID_STATUS = new Set(['all', 'pending', 'missing', 'found', 'rejected']);
+const VALID_GENDERS = new Set(['Male', 'Female', 'Other', 'Prefer not to say']);
+const VALID_TYPES = new Set(['child', 'adult', 'elderly', 'family']);
+const VALID_STATES = new Set(INDIAN_STATES);
+
+function parseIntParam(value: string | null, fallback: number) {
+  const parsed = Number.parseInt(value || '', 10);
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function estimateBase64Bytes(dataUrl: string): number {
+  const commaIndex = dataUrl.indexOf(',');
+  if (commaIndex < 0) return 0;
+  const b64 = dataUrl.slice(commaIndex + 1);
+  return Math.floor((b64.length * 3) / 4);
+}
 
 export async function GET(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url);
-    const status = searchParams.get('status') || 'missing';
-    const q = searchParams.get('q') || '';
-    const state = searchParams.get('state') || '';
-    const gender = searchParams.get('gender') || '';
-    const type = searchParams.get('type') || '';
-    const page = Math.max(1, parseInt(searchParams.get('page') || '1'));
-    const pageSize = Math.min(50, parseInt(searchParams.get('pageSize') || '20'));
+    const status = sanitize(searchParams.get('status') || 'missing');
+    const q = sanitize(searchParams.get('q') || '');
+    const state = sanitize(searchParams.get('state') || '');
+    const gender = sanitize(searchParams.get('gender') || '');
+    const type = sanitize(searchParams.get('type') || '');
+    const page = Math.max(1, parseIntParam(searchParams.get('page'), 1));
+    const pageSize = Math.min(50, Math.max(1, parseIntParam(searchParams.get('pageSize'), 20)));
     const myReports = searchParams.get('my') === '1';
 
     const user = await getSessionUser();
@@ -20,7 +38,6 @@ export async function GET(req: NextRequest) {
     let where = 'WHERE 1=1';
     const params: (string | number)[] = [];
 
-    // Non-admin users can only see public reports unless viewing their own
     if (myReports) {
       if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
       where += ' AND r.reporter_id = ?';
@@ -30,6 +47,9 @@ export async function GET(req: NextRequest) {
     }
 
     if (status && status !== 'all' && !myReports) {
+      if (!VALID_STATUS.has(status)) {
+        return NextResponse.json({ error: 'Invalid status filter' }, { status: 400 });
+      }
       where += ' AND r.status = ?';
       params.push(status);
     }
@@ -40,12 +60,32 @@ export async function GET(req: NextRequest) {
       params.push(lq, lq, lq, lq, lq);
     }
 
-    if (state) { where += ' AND r.state = ?'; params.push(state); }
-    if (gender) { where += ' AND r.gender = ?'; params.push(gender); }
-    if (type) { where += ' AND r.report_type = ?'; params.push(type); }
+    if (state) {
+      if (!VALID_STATES.has(state as (typeof INDIAN_STATES)[number])) {
+        return NextResponse.json({ error: 'Invalid state filter' }, { status: 400 });
+      }
+      where += ' AND r.state = ?';
+      params.push(state);
+    }
+
+    if (gender) {
+      if (!VALID_GENDERS.has(gender)) {
+        return NextResponse.json({ error: 'Invalid gender filter' }, { status: 400 });
+      }
+      where += ' AND r.gender = ?';
+      params.push(gender);
+    }
+
+    if (type) {
+      if (!VALID_TYPES.has(type)) {
+        return NextResponse.json({ error: 'Invalid type filter' }, { status: 400 });
+      }
+      where += ' AND r.report_type = ?';
+      params.push(type);
+    }
 
     const offset = (page - 1) * pageSize;
-    const countRow = db.prepare(`SELECT COUNT(*) as cnt FROM reports r ${where}`).get(...params) as any;
+    const countRow = db.prepare(`SELECT COUNT(*) as cnt FROM reports r ${where}`).get(...params) as { cnt: number };
     const total = countRow.cnt;
 
     const rows = db.prepare(`
@@ -55,12 +95,11 @@ export async function GET(req: NextRequest) {
       ${where}
       ORDER BY r.created_at DESC
       LIMIT ? OFFSET ?
-    `).all(...params, pageSize, offset) as any[];
+    `).all(...params, pageSize, offset) as Record<string, unknown>[];
 
-    // Attach photos (first only for list view)
-    const reports = rows.map((r: any) => {
-      const photo = db.prepare('SELECT id, data FROM photos WHERE report_id = ? LIMIT 1').get(r.id) as any;
-      const sightingCount = (db.prepare('SELECT COUNT(*) as cnt FROM sightings WHERE report_id = ?').get(r.id) as any).cnt;
+    const reports = rows.map((r) => {
+      const photo = db.prepare('SELECT id, data FROM photos WHERE report_id = ? LIMIT 1').get(r.id) as { data?: string } | undefined;
+      const sightingCount = (db.prepare('SELECT COUNT(*) as cnt FROM sightings WHERE report_id = ?').get(r.id) as { cnt: number }).cnt;
       return { ...r, coverPhoto: photo?.data || null, sightingCount };
     });
 
@@ -82,21 +121,50 @@ export async function POST(req: NextRequest) {
     const user = await getSessionUser();
     if (!user) return NextResponse.json({ error: 'Login required to file a report' }, { status: 401 });
 
-    const body = await req.json();
-
-    // Validate required fields
-    const required = ['name', 'age', 'gender', 'last_seen', 'location', 'state',
-      'description', 'physical_desc', 'contact_name', 'contact_phone', 'contact_relation'];
-    for (const field of required) {
-      if (!body[field]) return NextResponse.json({ error: `Missing field: ${field}` }, { status: 400 });
+    const body = await req.json().catch(() => null);
+    if (!body || typeof body !== 'object') {
+      return NextResponse.json({ error: 'Invalid request body' }, { status: 400 });
     }
 
-    if (body.description.length < 20) {
+    const required = ['name', 'age', 'gender', 'last_seen', 'location', 'state', 'description', 'physical_desc', 'contact_name', 'contact_phone', 'contact_relation'];
+    for (const field of required) {
+      if (!sanitize(String((body as Record<string, unknown>)[field] || ''))) {
+        return NextResponse.json({ error: `Missing field: ${field}` }, { status: 400 });
+      }
+    }
+
+    const age = Number.parseInt(String((body as Record<string, unknown>).age || ''), 10);
+    if (!Number.isFinite(age) || age < 0 || age > 130) {
+      return NextResponse.json({ error: 'Age must be between 0 and 130' }, { status: 400 });
+    }
+
+    const gender = sanitize(String((body as Record<string, unknown>).gender || ''));
+    if (!VALID_GENDERS.has(gender)) {
+      return NextResponse.json({ error: 'Invalid gender' }, { status: 400 });
+    }
+
+    const state = sanitize(String((body as Record<string, unknown>).state || ''));
+    if (!VALID_STATES.has(state as (typeof INDIAN_STATES)[number])) {
+      return NextResponse.json({ error: 'Invalid state' }, { status: 400 });
+    }
+
+    const description = sanitize(String((body as Record<string, unknown>).description || ''));
+    if (description.length < 20) {
       return NextResponse.json({ error: 'Description must be at least 20 characters' }, { status: 400 });
     }
 
-    if (new Date(body.last_seen) > new Date()) {
+    const lastSeen = String((body as Record<string, unknown>).last_seen || '');
+    const lastSeenDate = new Date(lastSeen);
+    if (Number.isNaN(lastSeenDate.getTime())) {
+      return NextResponse.json({ error: 'Invalid last seen date' }, { status: 400 });
+    }
+    if (lastSeenDate.getTime() > Date.now()) {
       return NextResponse.json({ error: 'Last seen date cannot be in the future' }, { status: 400 });
+    }
+
+    const reportType = sanitize(String((body as Record<string, unknown>).report_type || 'adult'));
+    if (!VALID_TYPES.has(reportType)) {
+      return NextResponse.json({ error: 'Invalid report type' }, { status: 400 });
     }
 
     const db = getDb();
@@ -113,27 +181,42 @@ export async function POST(req: NextRequest) {
         admin_notes, created_at, updated_at
       ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,'pending',?,?,?,?,?,?,?)
     `).run(
-      id, caseNumber,
-      sanitize(body.name), parseInt(body.age), body.gender,
-      body.last_seen, sanitize(body.location), body.state,
-      sanitize(body.description), sanitize(body.physical_desc),
-      sanitize(body.identifying_marks || ''), sanitize(body.age_progression || ''),
-      body.report_type || 'adult', user.id,
-      sanitize(body.contact_name), sanitize(body.contact_phone), sanitize(body.contact_relation),
-      '', now, now
+      id,
+      caseNumber,
+      sanitize(String((body as Record<string, unknown>).name || '')),
+      age,
+      gender,
+      lastSeen,
+      sanitize(String((body as Record<string, unknown>).location || '')),
+      state,
+      description,
+      sanitize(String((body as Record<string, unknown>).physical_desc || '')),
+      sanitize(String((body as Record<string, unknown>).identifying_marks || '')),
+      sanitize(String((body as Record<string, unknown>).age_progression || '')),
+      reportType,
+      user.id,
+      sanitize(String((body as Record<string, unknown>).contact_name || '')),
+      sanitize(String((body as Record<string, unknown>).contact_phone || '')),
+      sanitize(String((body as Record<string, unknown>).contact_relation || '')),
+      '',
+      now,
+      now
     );
 
-    // Save photos
-    if (Array.isArray(body.photos)) {
-      for (const photo of body.photos.slice(0, 5)) {
-        if (photo.data && photo.filename) {
-          db.prepare('INSERT INTO photos (id, report_id, filename, data) VALUES (?,?,?,?)')
-            .run(generateId(), id, sanitize(photo.filename), photo.data);
-        }
-      }
+    const photos = Array.isArray((body as Record<string, unknown>).photos)
+      ? ((body as Record<string, unknown>).photos as Array<{ data?: string; filename?: string }>).slice(0, 5)
+      : [];
+
+    for (const photo of photos) {
+      const data = String(photo.data || '');
+      const filename = sanitize(String(photo.filename || ''));
+      if (!data || !filename || !data.startsWith('data:image/')) continue;
+      if (estimateBase64Bytes(data) > 5 * 1024 * 1024) continue;
+
+      db.prepare('INSERT INTO photos (id, report_id, filename, data) VALUES (?,?,?,?)')
+        .run(generateId(), id, filename, data);
     }
 
-    // Audit log
     db.prepare('INSERT INTO audit_log (id, report_id, action, user_id, notes) VALUES (?,?,?,?,?)')
       .run(generateId(), id, 'CREATED', user.id, 'Report filed by user');
 

@@ -58,7 +58,6 @@ export async function POST(req: NextRequest) {
 
     const token = await signToken({
       id: user.id,
-      name: user.name,
       email: user.email,
       role: user.role,
     });
@@ -80,13 +79,13 @@ export async function POST(req: NextRequest) {
       secure: process.env.NODE_ENV === "production",
       sameSite: "lax",
       path: "/",
-      maxAge: 60 * 60 * 24 * 7, // 7 days
+      maxAge: 60 * 60 * 24 * 7,
     });
 
     return response;
+
   } catch (err) {
     console.error("Login error:", err);
-
     return NextResponse.json(
       { error: "Server error" },
       { status: 500 }

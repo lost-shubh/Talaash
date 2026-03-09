@@ -58,7 +58,6 @@ export async function POST(req: NextRequest) {
 
     const token = await signToken({
       id: user.id,
-      name: user.name,
       email: user.email,
       role: user.role,
     });
@@ -84,9 +83,9 @@ export async function POST(req: NextRequest) {
     });
 
     return response;
+
   } catch (err) {
     console.error("Login error:", err);
-
     return NextResponse.json(
       { error: "Server error" },
       { status: 500 }
